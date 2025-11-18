@@ -1,5 +1,7 @@
 # Falling Dector: Asistente de Detección de Caídas con IA
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 **Falling Dector** es una aplicación de código abierto para Android diseñada para actuar como una red de seguridad personal, detectando caídas en tiempo real mediante el análisis de datos de sensores con un modelo de Inteligencia Artificial en el dispositivo.
 
 ---
@@ -45,13 +47,13 @@ El sistema opera como una máquina de estados finitos, diseñada para maximizar 
    v         |
 [FallClassifier.classify(datos_acelerometro)] --+ 
    |         
-(Probabilidad de Caída > 0.7)
+(Probabilidad de Caída > 0.4)
    |          
    v
-[FallDetectionService lanza AlertActivity]
+[FallDetectionService lanza Notificación de Pantalla Completa]
               |
               v
-[AlertActivity: Muestra Cuenta Atrás de 60 segundos]
+[AlertActivity: Muestra Cuenta Atrás de 60s y Suena Alarma Sonora]
    |                                        |
    | (Usuario pulsa CANCELAR)               | (El temporizador llega a 0)
    |                                        |
@@ -65,10 +67,10 @@ El sistema opera como una máquina de estados finitos, diseñada para maximizar 
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **`MainActivity`**        | Punto de entrada de la UI. Gestiona la solicitud de permisos, la entrada del número de teléfono y la visualización del estado del sistema.                                                                             | - **Reactiva:** Usa `LiveData` para observar cambios desde `FallDetectorStatus`, desacoplando la UI del servicio.<br>- **Persistencia:** Guarda el número de teléfono usando `SharedPreferences`. |
 | **`FallDetectorStatus`**  | **Fuente Única de Verdad (Singleton)**. Centraliza el estado (`status`) y los datos de los sensores (`sensorData`) para toda la aplicación.                                                                     | - **Seguridad de Hilos:** Usa `postValue()` en `LiveData` para permitir actualizaciones seguras desde hilos de segundo plano.<br>- **Arquitectura Limpia:** Elimina la necesidad de `BroadcastReceiver`. |
-| **`FallDetectionService`**| **Servicio de Primer Plano**. Aloja y gestiona el ciclo de vida de `FallDetector`. Garantiza que la detección continúe incluso si la app se cierra.                                                               | - **Fiabilidad:** Se ejecuta como `Foreground Service` con `START_STICKY` para una máxima persistencia.<br>- **Puente:** Implementa la interfaz `FallDetector.FallListener` para reaccionar a los eventos de detección. |
+| **`FallDetectionService`**| **Servicio de Primer Plano**. Aloja y gestiona el ciclo de vida de `FallDetector`. Garantiza que la detección continúe incluso si la app se cierra.                                                               | - **Fiabilidad:** Usa `fullScreenIntent` para mostrar la alerta sobre la pantalla de bloqueo.<br>- **Puente:** Implementa la interfaz `FallDetector.FallListener` para reaccionar a los eventos de detección. |
 | **`FallDetector`**        | **El Corazón de la Detección**. Implementa la lógica de sensores y la máquina de estados (`MONITORING`, `CANDIDATE_EVENT`).                                                                                       | - **Eficiencia:** Usa un "disparador" (`trigger`) basado en un umbral de magnitud para evitar el análisis constante.<br>- **Recolección Sincronizada:** Captura datos tanto del acelerómetro como del giroscopio en búferes. |
 | **`FallClassifier`**      | **El Cerebro de IA**. Carga el modelo `fall_detector_model.tflite` y ejecuta la inferencia sobre los datos de los sensores para determinar la probabilidad de una caída.                                            | - **Rendimiento:** Carga el modelo como un `MappedByteBuffer` para un acceso a memoria más rápido y eficiente.<br>- **Preparado para el Futuro:** La firma del método `classify` ya acepta datos del giroscopio. |
-| **`AlertActivity`**       | **La Red de Seguridad Final**. Muestra una pantalla de alerta a pantalla completa con una cuenta atrás, dando al usuario la oportunidad de cancelar. Ejecuta el protocolo de emergencia.                         | - **Crítico:** Usa flags de `WindowManager` para aparecer sobre la pantalla de bloqueo.<br>- **Robusto:** Incluye un flag `isAlertSent` para evitar el envío múltiple de alertas. |
+| **`AlertActivity`**       | **La Red de Seguridad Final**. Muestra una pantalla de alerta a pantalla completa, reproduce una alarma sonora y da al usuario la oportunidad de cancelar. Ejecuta el protocolo de emergencia.                         | - **Crítico:** Usa flags de `WindowManager` para aparecer sobre la pantalla de bloqueo.<br>- **Alarma Sonora:** Utiliza `RingtoneManager` para una alerta audible imposible de ignorar. |
 
 ---
 
@@ -92,38 +94,18 @@ El sistema opera como una máquina de estados finitos, diseñada para maximizar 
 
 ---
 
-## Posibles Mejoras y Hoja de Ruta
+## Hoja de Ruta y Posibles Mejoras
 
-Este proyecto tiene una base sólida, pero existen varias áreas claras para futuras mejoras que lo llevarían a un nivel de producto comercial:
-
-1.  **Mejora del Modelo de IA:**
-    *   **Entrenamiento con Giroscopio:** El paso más importante es entrenar un nuevo modelo que utilice los datos del giroscopio (velocidad angular) que ya se están recolectando. Esto aumentará significativamente la precisión para diferenciar caídas de otros movimientos.
-
-2.  **Configuración del Usuario:**
-    *   **Ajuste de Sensibilidad:** Los umbrales de detección de la IA (`FALL_THRESHOLD`) y del disparador físico (`MAG_PEAK_THRESHOLD`) están fijos en el código. Exponerlos en una pantalla de "Ajustes" permitiría al usuario adaptar la sensibilidad a sus necesidades.
-
-3.  **Robustez Adicional:**
-    *   **Verificación de Sensores:** Añadir una comprobación al inicio para asegurar que los sensores requeridos (acelerómetro) están disponibles en el dispositivo.
-    *   **Gestión de Permisos en Tiempo de Ejecución:** Implementar verificaciones de permisos justo antes de enviar el SMS o realizar la llamada en `AlertActivity` para manejar el caso de que el usuario los revoque mientras el servicio está activo.
-
-4.  **Experiencia de Usuario (UX):**
-    *   **Historial de Eventos:** Crear una pantalla que muestre un registro de las caídas detectadas y si fueron canceladas o confirmadas.
-    *   **Iconografía Personalizada:** Reemplazar los iconos genéricos del sistema por un conjunto de iconos diseñados para la aplicación.
+1.  **Mejora del Modelo de IA:** El paso más importante es entrenar un nuevo modelo que utilice los datos del giroscopio que ya se están recolectando para aumentar la precisión.
+2.  **Ajuste de Sensibilidad:** Crear una pantalla de "Ajustes" para que el usuario pueda elegir entre niveles de sensibilidad (Baja, Media, Alta).
+3.  **Historial de Eventos:** Añadir una pantalla que muestre un registro de las caídas detectadas y si fueron canceladas o confirmadas.
 
 ---
 
 ## Contribuciones
 
-Las contribuciones para mejorar Falling Dector son bienvenidas. La forma recomendada de contribuir es:
-
-1.  Crear un "Fork" del repositorio.
-2.  Crear una nueva rama (`git checkout -b feature/nueva-funcionalidad`).
-3.  Realizar los cambios y hacer "Commit".
-4.  Hacer "Push" a la rama (`git push origin feature/nueva-funcionalidad`).
-5.  Abrir un "Pull Request" para su revisión.
-
-Para cambios mayores o nuevas funcionalidades, por favor, abra primero un "Issue" para discutir el enfoque.
+Las contribuciones son bienvenidas. La forma recomendada de contribuir es abrir un "Issue" para discutir la propuesta antes de enviar un "Pull Request".
 
 ## Licencia
 
-Este proyecto está distribuido bajo la Licencia MIT. Ver el archivo `LICENSE` para más detalles.
+Este proyecto está distribuido bajo la Licencia MIT.
