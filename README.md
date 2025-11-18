@@ -10,37 +10,46 @@ La característica más importante de la aplicación es su **mecanismo de cancel
 *   **Ventana de Cancelación:** Al detectar una caída, la app muestra una pantalla de alerta durante 60 segundos, permitiendo al usuario cancelar la alarma si está bien.
 *   **Alertas Completas:** Si no se cancela, se envía automáticamente un SMS con la ubicación GPS del usuario (si está disponible) y se realiza una llamada al contacto de emergencia.
 *   **Monitoreo Constante y Eficiente:** La detección se ejecuta en un servicio en segundo plano (`Foreground Service`), garantizando que funcione incluso si la app no está en pantalla, pero optimizado para un bajo consumo de batería.
-*   **Interfaz Sencilla:** Diseñada para ser fácil de usar. Solo se necesita configurar un número de teléfono y activar el servicio.
+*   **Interfaz Dinámica y Reactiva:** La pantalla principal informa al usuario en tiempo real sobre el estado del servicio (monitoreando, analizando, detenido) y muestra los datos del sensor en vivo.
+
+## Mejoras Recientes en la Arquitectura
+
+Recientemente, hemos implementado dos mejoras cruciales para hacer la aplicación más robusta y segura:
+
+1.  **Centralización de Alertas con `AlertActivity` (Seguridad):**
+    *   **Problema Anterior:** La lógica para enviar SMS y realizar llamadas estaba en el servicio de detección, lo que podía llevar a alertas inmediatas por falsos positivos.
+    *   **Solución:** Se creó una `AlertActivity` dedicada. Ahora, el `FallDetectionService` tiene la única responsabilidad de lanzar esta actividad cuando detecta una caída. Toda la lógica de enviar alertas (SMS, llamada, obtención de ubicación) se ha movido a `AlertActivity` y solo se ejecuta si el temporizador de 60 segundos llega a cero. Esto asegura que el usuario siempre tenga la oportunidad de cancelar.
+
+2.  **Modernización de la Comunicación con `LiveData` (Robustez):**
+    *   **Problema Anterior:** La comunicación entre el servicio en segundo plano y la interfaz de usuario usaba `LocalBroadcastManager`, un mecanismo antiguo y propenso a errores.
+    *   **Solución:** Se implementó un objeto singleton llamado `FallDetectorStatus`. Este objeto actúa como una "fuente única de verdad" utilizando `LiveData` para exponer el estado del servicio (`status`) y los datos del sensor (`sensorData`). El `FallDetectionService` ahora escribe sus actualizaciones en este objeto, y la `MainActivity` observa estos `LiveData` para actualizar la interfaz de forma reactiva, eliminando la necesidad de `BroadcastReceivers`.
 
 ## ¿Cómo Funciona?
 
-El sistema opera a través de un flujo de varios pasos para maximizar la precisión y evitar falsos positivos:
-
-1.  **Monitoreo Pasivo:** El servicio escucha constantemente el acelerómetro del dispositivo, esperando un evento de alta energía.
-2.  **Disparador de Evento (Trigger):** Si la magnitud de la aceleración supera un umbral predefinido (un pico brusco), el sistema asume que ha ocurrido un "evento candidato" y pasa a la siguiente fase. Esto ahorra batería al no analizar datos constantemente.
-3.  **Recolección de Datos:** Durante un breve periodo, la app recolecta una ventana de datos del sensor (500 muestras) que captura el patrón de movimiento completo del evento.
-4.  **Clasificación con IA:** Esta ventana de datos se envía al modelo de TensorFlow Lite (`fall_detector_model.tflite`), que analiza el patrón y determina la probabilidad de que haya sido una caída.
-5.  **Pantalla de Alerta:** Si la IA confirma una caída, en lugar de alertar inmediatamente, se lanza una actividad a pantalla completa (`AlertActivity`). Esta pantalla muestra una cuenta atrás de 60 segundos.
+1.  **Monitoreo Pasivo:** El servicio escucha constantemente el acelerómetro.
+2.  **Disparador de Evento (Trigger):** Un pico brusco de aceleración activa la recolección de datos.
+3.  **Recolección de Datos:** Se captura una ventana de 500 muestras del sensor.
+4.  **Clasificación con IA:** El modelo de TensorFlow Lite analiza los datos y determina si ha ocurrido una caída.
+5.  **Pantalla de Alerta:** Si la IA confirma una caída, se lanza `AlertActivity` a pantalla completa, mostrando una cuenta atrás de 60 segundos.
 6.  **Resolución de la Alerta:**
-    *   **Cancelación:** Si el usuario presiona el botón "ESTOY BIEN", la alerta se detiene y la app vuelve al modo de monitoreo.
-    *   **Confirmación:** Si el temporizador llega a cero, la app procede a enviar el SMS y realizar la llamada de emergencia.
+    *   **Cancelación:** El usuario presiona "ESTOY BIEN" para detener la alerta.
+    *   **Confirmación:** Si el temporizador llega a cero, la app envía el SMS y realiza la llamada de emergencia.
 
 ## Arquitectura Técnica
 
-El proyecto se estructura en varios componentes clave:
-
-*   `FallDetector.kt`: La clase responsable de interactuar con los sensores, implementar la lógica del disparador y la recolección de datos.
-*   `FallClassifier.kt`: Contiene el intérprete de TensorFlow Lite. Carga el modelo `.tflite` desde los assets y realiza la inferencia sobre los datos del sensor.
-*   `FallDetectionService.kt`: Un `Foreground Service` que aloja al `FallDetector`. Su función es iniciar la `AlertActivity` cuando se confirma una caída.
-*   `AlertActivity.kt`: La pantalla de alerta con la cuenta atrás. Es la responsable final de enviar el SMS y realizar la llamada si la alarma no es cancelada.
-*   `MainActivity.kt`: La interfaz de usuario principal para que el usuario ingrese el número de emergencia y active o desactive el servicio.
+*   `FallDetector.kt`: Interactúa con los sensores y recolecta datos.
+*   `FallClassifier.kt`: Contiene el intérprete de TensorFlow Lite para la inferencia.
+*   `FallDetectionService.kt`: `Foreground Service` que aloja la detección y lanza `AlertActivity`.
+*   `AlertActivity.kt`: Pantalla de alerta con cuenta atrás, responsable de enviar las notificaciones de emergencia.
+*   `MainActivity.kt`: UI principal para activar/desactivar el servicio y observar su estado.
+*   `FallDetectorStatus.kt`: Singleton con `LiveData` para comunicar el estado del servicio a la UI.
 
 ## Cómo Empezar
 
 ### Prerrequisitos
 
 *   Android Studio (versión recomendada: Iguana o superior)
-*   Un dispositivo físico Android con acelerómetro. El emulador no puede simular caídas.
+*   Un dispositivo físico Android con acelerómetro.
 
 ### Instalación
 
@@ -48,27 +57,22 @@ El proyecto se estructura en varios componentes clave:
     ```bash
     git clone https://github.com/UCH4/fallingdetector.git
     ```
-2.  **Abre el proyecto:**
-    Abre Android Studio y selecciona `Open an existing project`, navegando hasta la carpeta clonada.
-3.  **Sincroniza y Ejecuta:**
-    Android Studio descargará automáticamente las dependencias de Gradle. Una vez sincronizado, ejecuta la aplicación en tu dispositivo conectado.
+2.  **Abre el proyecto en Android Studio.**
+3.  **Sincroniza y Ejecuta** en tu dispositivo.
 
 ## Justificación de Permisos
 
-La aplicación requiere varios permisos sensibles para cumplir su función. Es importante ser transparente con el usuario sobre por qué son necesarios:
-
-*   `SEND_SMS`: Para enviar el mensaje de texto de alerta al contacto de emergencia.
-*   `CALL_PHONE`: Para iniciar la llamada de emergencia automáticamente.
-*   `ACCESS_FINE_LOCATION`: Para obtener las coordenadas GPS y enviarlas en el SMS de alerta.
-*   `FOREGROUND_SERVICE`: Para permitir que el servicio de detección se ejecute de manera fiable en segundo plano.
-*   `POST_NOTIFICATIONS`: Requerido por Android para mostrar la notificación persistente del servicio en primer plano.
+*   `SEND_SMS`: Para enviar el SMS de alerta.
+*   `CALL_PHONE`: Para iniciar la llamada de emergencia.
+*   `ACCESS_FINE_LOCATION`: Para incluir la ubicación en el SMS.
+*   `FOREGROUND_SERVICE` y `POST_NOTIFICATIONS`: Para que el servicio de detección funcione de manera fiable.
 
 ## Posibles Mejoras Futuras
 
-*   **Incorporar Datos del Giroscopio:** Añadir datos de velocidad angular al modelo de IA podría mejorar significativamente la precisión, ayudando a distinguir mejor entre un salto y una caída real.
-*   **Umbrales Configurables:** Permitir al usuario ajustar la sensibilidad del disparador de eventos desde los ajustes de la app.
-*   **Registro de Eventos:** Guardar un historial de caídas detectadas (y canceladas) para que el usuario o un cuidador puedan revisarlo.
+*   **Incorporar Datos del Giroscopio:** Añadir datos de velocidad angular al modelo para mejorar la precisión.
+*   **Umbrales Configurables:** Permitir al usuario ajustar la sensibilidad.
+*   **Registro de Eventos:** Guardar un historial de caídas detectadas y canceladas.
 
 ## Contribuciones
 
-Las contribuciones son bienvenidas. Si tienes ideas para mejorar la app, por favor abre un "issue" para discutirlo o envía un "pull request" con tu mejora.
+Las contribuciones son bienvenidas. Abre un "issue" para discutir ideas o envía un "pull request".

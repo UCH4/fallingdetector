@@ -72,8 +72,9 @@ class FallDetectionService : Service(), FallDetector.FallListener {
         Log.i("FallDetectionService", "Estado de Detección Cambiado: $statusText")
     }
 
-    override fun onSensorDataUpdated(ax: Float, ay: Float, az: Float, amag: Float) {
-        val sensorData = "X: ${String.format("%.2f", ax)}, Y: ${String.format("%.2f", ay)}, Z: ${String.format("%.2f", az)}, Mag: ${String.format("%.2f", amag)}"
+    override fun onSensorDataUpdated(ax: Float, ay: Float, az: Float, amag: Float, gx: Float, gy: Float, gz: Float) {
+        val sensorData = "Acel: X: ${String.format("%.2f", ax)}, Y: ${String.format("%.2f", ay)}, Z: ${String.format("%.2f", az)}\n" +
+                         "Giro: X: ${String.format("%.2f", gx)}, Y: ${String.format("%.2f", gy)}, Z: ${String.format("%.2f", gz)}"
         FallDetectorStatus.updateSensorData(sensorData)
     }
 
