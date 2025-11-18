@@ -1,11 +1,10 @@
 package com.example.fallingdector
 
 import android.Manifest
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -14,14 +13,10 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.cardview.widget.CardView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
 
-// Constantes para la comunicación Broadcast. DEBEN ESTAR SOLO AQUÍ.
-const val ACTION_FALL_DETECTOR_UPDATE = "com.example.fallingdector.UPDATE"
-const val EXTRA_STATUS = "EXTRA_STATUS"
-const val EXTRA_SENSOR_DATA = "EXTRA_SENSOR_DATA"
 private const val KEY_PHONE = "emergency_phone"
 
 class MainActivity : AppCompatActivity() {
@@ -30,103 +25,101 @@ class MainActivity : AppCompatActivity() {
     private lateinit var stopBtn: Button
     private lateinit var testBtn: Button
     private lateinit var phoneNumberEditText: EditText
-
-    // VISTAS PARA EL ESTADO
     private lateinit var statusTextView: TextView
     private lateinit var sensorDataTextView: TextView
+    private lateinit var statusCard: CardView // Nueva vista
 
     private val PERMISSION_REQUEST_CODE = 101
     private val PREFS_NAME = "app_prefs"
-
-    // RECEPTOR DE BROADCAST
-    private val detectorUpdateReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val status = intent?.getStringExtra(EXTRA_STATUS) ?: ""
-            val sensorData = intent?.getStringExtra(EXTRA_SENSOR_DATA) ?: ""
-
-            if (status.isNotEmpty()) {
-                statusTextView.text = "Detección de caídas: $status"
-                Log.i("MainActivity", "Estado de Detección Recibido: $status")
-
-                // Actualiza los botones basado en el estado recibido
-                when {
-                    status.contains("Detenida") || status.contains("ERROR") -> updateUI(false)
-                    else -> updateUI(true)
-                }
-            }
-
-            if (sensorData.isNotEmpty()) {
-                sensorDataTextView.text = "Datos del sensor: $sensorData"
-                Log.d("MainActivity_Sensor", sensorData)
-            }
-        }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Inicialización de Vistas
+        // 1. Inicialización de Vistas
         startBtn = findViewById(R.id.startButton)
         stopBtn = findViewById(R.id.stopButton)
         testBtn = findViewById(R.id.testButton)
         phoneNumberEditText = findViewById(R.id.phoneNumberEditText)
         statusTextView = findViewById(R.id.statusTextView)
         sensorDataTextView = findViewById(R.id.sensorDataTextView)
+        statusCard = findViewById(R.id.statusCard)
 
+        // 2. Carga de datos y permisos
         loadPhoneNumber()
         checkAndRequestPermissions()
 
-        // Registrar el Broadcast Receiver
-        LocalBroadcastManager.getInstance(this).registerReceiver(
-            detectorUpdateReceiver, IntentFilter(ACTION_FALL_DETECTOR_UPDATE)
-        )
+        // 3. Configuración de Listeners para los botones
+        setupButtonClickListeners()
 
+        // 4. Observadores de LiveData para actualizar la UI en tiempo real
+        setupLiveDataObservers()
+    }
+
+    private fun setupLiveDataObservers() {
+        FallDetectorStatus.status.observe(this) { status ->
+            statusTextView.text = status
+            Log.i("MainActivity", "LiveData - Estado actualizado: $status")
+
+            val isDetecting = status.contains("Monitoreando") || status.contains("Analizando")
+            updateUI(isDetecting)
+
+            // Lógica de cambio de color
+            val cardColor = when {
+                status.contains("Monitoreando") -> Color.parseColor("#4CAF50") // Verde
+                status.contains("Analizando") -> Color.parseColor("#FFC107") // Ámbar
+                status.contains("CAÍDA CONFIRMADA") -> Color.parseColor("#FF5722") // Naranja Intenso
+                else -> Color.parseColor("#D32F2F") // Rojo para Detenida, Error, etc.
+            }
+            statusCard.setCardBackgroundColor(cardColor)
+        }
+
+        FallDetectorStatus.sensorData.observe(this) { data ->
+            sensorDataTextView.text = data
+        }
+    }
+
+    private fun setupButtonClickListeners() {
         startBtn.setOnClickListener {
-            if (phoneNumberEditText.text.isBlank()) {
+            val phone = phoneNumberEditText.text.toString()
+            if (phone.isBlank()) {
                 Toast.makeText(this, "Por favor, ingresa un número de emergencia.", Toast.LENGTH_LONG).show()
                 return@setOnClickListener
             }
             if (!arePermissionsGranted()) {
-                Toast.makeText(this, "Permisos insuficientes. Concede todos los permisos.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Permisos insuficientes. La app no puede iniciar sin ellos.", Toast.LENGTH_LONG).show()
                 checkAndRequestPermissions()
                 return@setOnClickListener
             }
 
-            savePhoneNumber(phoneNumberEditText.text.toString())
+            savePhoneNumber(phone)
             val intent = Intent(this, FallDetectionService::class.java).apply {
                 putExtra("ACTION_TYPE", "START_DETECTION")
-                putExtra(KEY_PHONE, phoneNumberEditText.text.toString())
+                putExtra(KEY_PHONE, phone)
             }
             ContextCompat.startForegroundService(this, intent)
-
-            updateUI(true)
+            Toast.makeText(this, "Servicio de detección iniciado.", Toast.LENGTH_SHORT).show()
         }
 
         stopBtn.setOnClickListener {
             val intent = Intent(this, FallDetectionService::class.java)
             stopService(intent)
-            updateUI(false)
+            Toast.makeText(this, "Servicio de detección detenido.", Toast.LENGTH_SHORT).show()
         }
 
         testBtn.setOnClickListener {
-            if (phoneNumberEditText.text.isBlank() || !arePermissionsGranted()) return@setOnClickListener
-            savePhoneNumber(phoneNumberEditText.text.toString())
-
-            val intent = Intent(this, FallDetectionService::class.java).apply {
-                putExtra("ACTION_TYPE", "RUN_TEST")
-                putExtra(KEY_PHONE, phoneNumberEditText.text.toString())
+            val phone = phoneNumberEditText.text.toString()
+            if (phone.isBlank()) {
+                Toast.makeText(this, "Ingresa un número para probar la alerta.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
-            startService(intent)
-            Toast.makeText(this, "Enviando SMS de prueba e iniciando llamada...", Toast.LENGTH_LONG).show()
+            savePhoneNumber(phone)
+
+            val intent = Intent(this, AlertActivity::class.java).apply {
+                putExtra("EMERGENCY_CONTACT", phone)
+            }
+            startActivity(intent)
         }
-
-        updateUI(false)
-    }
-
-    override fun onDestroy() {
-        LocalBroadcastManager.getInstance(this).unregisterReceiver(detectorUpdateReceiver)
-        super.onDestroy()
     }
 
     override fun onPause() {
@@ -136,69 +129,52 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // --- Funciones de Persistencia ---
-
     private fun savePhoneNumber(number: String) {
         val sharedPref = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        with (sharedPref.edit()) {
-            putString(KEY_PHONE, number)
-            apply()
-        }
+        with(sharedPref.edit()) { putString(KEY_PHONE, number); apply() }
     }
 
     private fun loadPhoneNumber() {
         val sharedPref = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val savedNumber = sharedPref.getString(KEY_PHONE, "")
-        phoneNumberEditText.setText(savedNumber)
+        phoneNumberEditText.setText(sharedPref.getString(KEY_PHONE, ""))
     }
 
-    // --- Gestión de Permisos ---
-
-    private fun checkAndRequestPermissions() {
-        val requiredPermissions = mutableListOf(
+    private fun arePermissionsGranted(): Boolean {
+        val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.SEND_SMS,
             Manifest.permission.CALL_PHONE
         )
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requiredPermissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-
-        val permissionsToRequest = requiredPermissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }.toTypedArray()
-
-        if (permissionsToRequest.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, permissionsToRequest, PERMISSION_REQUEST_CODE)
-        }
+        return permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED }
     }
 
-    private fun arePermissionsGranted(): Boolean {
-        val baseGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED &&
-                ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED &&
-                ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            return baseGranted && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    private fun checkAndRequestPermissions() {
+        if (!arePermissionsGranted()) {
+            val permissionsToRequest = mutableListOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.SEND_SMS,
+                Manifest.permission.CALL_PHONE
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            ActivityCompat.requestPermissions(this, permissionsToRequest.toTypedArray(), PERMISSION_REQUEST_CODE)
         }
-        return baseGranted
     }
 
     private fun updateUI(isDetecting: Boolean) {
         startBtn.isEnabled = !isDetecting
         stopBtn.isEnabled = isDetecting
         phoneNumberEditText.isEnabled = !isDetecting
-        testBtn.isEnabled = !isDetecting
-
-        if (!isDetecting) {
-            statusTextView.text = "Detección de caídas: Detenida"
-            sensorDataTextView.text = "Datos del sensor: "
-        }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        // ... (Tu manejo de resultados de permisos) ...
+        if (requestCode == PERMISSION_REQUEST_CODE && grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
+            Toast.makeText(this, "Algunos permisos fueron denegados. La app podría no funcionar como se espera.", Toast.LENGTH_LONG).show()
+        }
     }
 }
