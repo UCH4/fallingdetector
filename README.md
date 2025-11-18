@@ -1,78 +1,129 @@
 # Falling Dector: Asistente de Detección de Caídas con IA
 
-**Falling Dector** es una aplicación para Android diseñada para ofrecer tranquilidad y seguridad a personas vulnerables, como los adultos mayores. Utilizando los sensores del dispositivo y un modelo de Inteligencia Artificial (TensorFlow Lite), la app detecta caídas en tiempo real y activa un protocolo de alerta para notificar a un contacto de emergencia.
+**Falling Dector** es una aplicación de código abierto para Android diseñada para actuar como una red de seguridad personal, detectando caídas en tiempo real mediante el análisis de datos de sensores con un modelo de Inteligencia Artificial en el dispositivo.
 
-La característica más importante de la aplicación es su **mecanismo de cancelación de falsas alarmas**, que da al usuario un tiempo prudencial para anular la alerta en caso de que no sea una emergencia real, evitando así preocupaciones innecesarias.
+---
 
-## Características Clave
+## El Problema: El Impacto Real de las Caídas
 
-*   **Detección Inteligente:** Un modelo de IA analiza los datos del acelerómetro para distinguir caídas reales de otros movimientos bruscos.
-*   **Ventana de Cancelación:** Al detectar una caída, la app muestra una pantalla de alerta durante 60 segundos, permitiendo al usuario cancelar la alarma si está bien.
-*   **Alertas Completas:** Si no se cancela, se envía automáticamente un SMS con la ubicación GPS del usuario (si está disponible) y se realiza una llamada al contacto de emergencia.
-*   **Monitoreo Constante y Eficiente:** La detección se ejecuta en un servicio en segundo plano (`Foreground Service`), garantizando que funcione incluso si la app no está en pantalla, pero optimizado para un bajo consumo de batería.
-*   **Interfaz Dinámica y Reactiva:** La pantalla principal informa al usuario en tiempo real sobre el estado del servicio (monitoreando, analizando, detenido) y muestra los datos del sensor en vivo.
+Las caídas son un problema de salud pública global y a menudo subestimado. Las estadísticas subrayan la urgencia y la necesidad de soluciones tecnológicas efectivas:
 
-## Mejoras Recientes en la Arquitectura
+*   **Principal Causa de Muerte por Lesión:** Según la Organización Mundial de la Salud (OMS), las caídas son la **segunda causa principal de muerte por lesiones accidentales o no intencionales** en todo el mundo.
+*   **Impacto en Adultos Mayores:** Los Centros para el Control y la Prevención de Enfermedades (CDC) de EE. UU. informan que cada año, millones de adultos mayores de 65 años sufren caídas, y **una de cada cinco de estas caídas causa una lesión grave**, como una fractura de hueso o una lesión en la cabeza.
+*   **El Factor Tiempo:** La rapidez con la que una persona recibe ayuda después de una caída es un factor crítico que influye directamente en la gravedad de las secuelas. La incapacidad de pedir ayuda puede llevar a complicaciones graves.
 
-Recientemente, hemos implementado dos mejoras cruciales para hacer la aplicación más robusta y segura:
+**Falling Dector** fue creado para abordar este problema, proporcionando un sistema de alerta automático, rápido y fiable que funciona incluso cuando el usuario no puede pedir ayuda por sí mismo.
 
-1.  **Centralización de Alertas con `AlertActivity` (Seguridad):**
-    *   **Problema Anterior:** La lógica para enviar SMS y realizar llamadas estaba en el servicio de detección, lo que podía llevar a alertas inmediatas por falsos positivos.
-    *   **Solución:** Se creó una `AlertActivity` dedicada. Ahora, el `FallDetectionService` tiene la única responsabilidad de lanzar esta actividad cuando detecta una caída. Toda la lógica de enviar alertas (SMS, llamada, obtención de ubicación) se ha movido a `AlertActivity` y solo se ejecuta si el temporizador de 60 segundos llega a cero. Esto asegura que el usuario siempre tenga la oportunidad de cancelar.
+---
 
-2.  **Modernización de la Comunicación con `LiveData` (Robustez):**
-    *   **Problema Anterior:** La comunicación entre el servicio en segundo plano y la interfaz de usuario usaba `LocalBroadcastManager`, un mecanismo antiguo y propenso a errores.
-    *   **Solución:** Se implementó un objeto singleton llamado `FallDetectorStatus`. Este objeto actúa como una "fuente única de verdad" utilizando `LiveData` para exponer el estado del servicio (`status`) y los datos del sensor (`sensorData`). El `FallDetectionService` ahora escribe sus actualizaciones en este objeto, y la `MainActivity` observa estos `LiveData` para actualizar la interfaz de forma reactiva, eliminando la necesidad de `BroadcastReceivers`.
+## Diseño del Sistema y Arquitectura Técnica
 
-## ¿Cómo Funciona?
+La aplicación está construida sobre una arquitectura robusta y moderna, priorizando la eficiencia, la fiabilidad y la separación de responsabilidades.
 
-1.  **Monitoreo Pasivo:** El servicio escucha constantemente el acelerómetro.
-2.  **Disparador de Evento (Trigger):** Un pico brusco de aceleración activa la recolección de datos.
-3.  **Recolección de Datos:** Se captura una ventana de 500 muestras del sensor.
-4.  **Clasificación con IA:** El modelo de TensorFlow Lite analiza los datos y determina si ha ocurrido una caída.
-5.  **Pantalla de Alerta:** Si la IA confirma una caída, se lanza `AlertActivity` a pantalla completa, mostrando una cuenta atrás de 60 segundos.
-6.  **Resolución de la Alerta:**
-    *   **Cancelación:** El usuario presiona "ESTOY BIEN" para detener la alerta.
-    *   **Confirmación:** Si el temporizador llega a cero, la app envía el SMS y realiza la llamada de emergencia.
+### Flujo General de Detección
 
-## Arquitectura Técnica
+El sistema opera como una máquina de estados finitos, diseñada para maximizar la duración de la batería mientras se mantiene una alta sensibilidad a los eventos de caída.
 
-*   `FallDetector.kt`: Interactúa con los sensores y recolecta datos.
-*   `FallClassifier.kt`: Contiene el intérprete de TensorFlow Lite para la inferencia.
-*   `FallDetectionService.kt`: `Foreground Service` que aloja la detección y lanza `AlertActivity`.
-*   `AlertActivity.kt`: Pantalla de alerta con cuenta atrás, responsable de enviar las notificaciones de emergencia.
-*   `MainActivity.kt`: UI principal para activar/desactivar el servicio y observar su estado.
-*   `FallDetectorStatus.kt`: Singleton con `LiveData` para comunicar el estado del servicio a la UI.
+```
+[Usuario Inicia el Servicio en MainActivity]
+              |
+              v
+[FallDetectionService se ejecuta en Primer Plano (Notificación Persistente)]
+              |
+              v
+[FallDetector: Estado = MONITORING]
+   |         ^
+   |         | (Evento rechazado por IA, vuelve a monitorear)
+   |         |
+(Pico de Aceleración > 20.0 Gs)
+   |         |
+   v         |
+[FallDetector: Estado = CANDIDATE_EVENT]
+   |         |
+   | (Recolecta 500 muestras de Acelerómetro y Giroscopio)
+   |         |
+   v         |
+[FallClassifier.classify(datos_acelerometro)] --+ 
+   |         
+(Probabilidad de Caída > 0.7)
+   |          
+   v
+[FallDetectionService lanza AlertActivity]
+              |
+              v
+[AlertActivity: Muestra Cuenta Atrás de 60 segundos]
+   |                                        |
+   | (Usuario pulsa CANCELAR)               | (El temporizador llega a 0)
+   |                                        |
+   v                                        v
+[La alerta se detiene, la actividad se cierra]   [Protocolo de Emergencia: Se envía SMS y se realiza la Llamada]
+```
+
+### Desglose de Componentes
+
+| Componente Fichero (.kt)  | Responsabilidad Principal                                                                                                                                                                                            | Puntos Clave de Diseño                                                                                                                                   |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`MainActivity`**        | Punto de entrada de la UI. Gestiona la solicitud de permisos, la entrada del número de teléfono y la visualización del estado del sistema.                                                                             | - **Reactiva:** Usa `LiveData` para observar cambios desde `FallDetectorStatus`, desacoplando la UI del servicio.<br>- **Persistencia:** Guarda el número de teléfono usando `SharedPreferences`. |
+| **`FallDetectorStatus`**  | **Fuente Única de Verdad (Singleton)**. Centraliza el estado (`status`) y los datos de los sensores (`sensorData`) para toda la aplicación.                                                                     | - **Seguridad de Hilos:** Usa `postValue()` en `LiveData` para permitir actualizaciones seguras desde hilos de segundo plano.<br>- **Arquitectura Limpia:** Elimina la necesidad de `BroadcastReceiver`. |
+| **`FallDetectionService`**| **Servicio de Primer Plano**. Aloja y gestiona el ciclo de vida de `FallDetector`. Garantiza que la detección continúe incluso si la app se cierra.                                                               | - **Fiabilidad:** Se ejecuta como `Foreground Service` con `START_STICKY` para una máxima persistencia.<br>- **Puente:** Implementa la interfaz `FallDetector.FallListener` para reaccionar a los eventos de detección. |
+| **`FallDetector`**        | **El Corazón de la Detección**. Implementa la lógica de sensores y la máquina de estados (`MONITORING`, `CANDIDATE_EVENT`).                                                                                       | - **Eficiencia:** Usa un "disparador" (`trigger`) basado en un umbral de magnitud para evitar el análisis constante.<br>- **Recolección Sincronizada:** Captura datos tanto del acelerómetro como del giroscopio en búferes. |
+| **`FallClassifier`**      | **El Cerebro de IA**. Carga el modelo `fall_detector_model.tflite` y ejecuta la inferencia sobre los datos de los sensores para determinar la probabilidad de una caída.                                            | - **Rendimiento:** Carga el modelo como un `MappedByteBuffer` para un acceso a memoria más rápido y eficiente.<br>- **Preparado para el Futuro:** La firma del método `classify` ya acepta datos del giroscopio. |
+| **`AlertActivity`**       | **La Red de Seguridad Final**. Muestra una pantalla de alerta a pantalla completa con una cuenta atrás, dando al usuario la oportunidad de cancelar. Ejecuta el protocolo de emergencia.                         | - **Crítico:** Usa flags de `WindowManager` para aparecer sobre la pantalla de bloqueo.<br>- **Robusto:** Incluye un flag `isAlertSent` para evitar el envío múltiple de alertas. |
+
+---
 
 ## Cómo Empezar
 
 ### Prerrequisitos
 
-*   Android Studio (versión recomendada: Iguana o superior)
-*   Un dispositivo físico Android con acelerómetro.
+*   Android Studio (Recomendado: Iguana o superior).
+*   Un **dispositivo físico Android** con acelerómetro. El emulador no puede simular los datos de sensores necesarios para una caída real.
 
-### Instalación
+### Instalación y Ejecución
 
-1.  **Clona el repositorio:**
+1.  **Clonar el repositorio:**
     ```bash
     git clone https://github.com/UCH4/fallingdetector.git
     ```
-2.  **Abre el proyecto en Android Studio.**
-3.  **Sincroniza y Ejecuta** en tu dispositivo.
+2.  **Abrir el proyecto** en Android Studio.
+3.  **Ejecutar la aplicación** en el dispositivo conectado (`Shift` + `F10`).
+4.  Al iniciar, la aplicación solicitará varios permisos. **Es fundamental concederlos** para que el protocolo de alerta funcione.
+5.  Introducir un número de teléfono de emergencia válido y pulsar **"Iniciar Detección"**.
 
-## Justificación de Permisos
+---
 
-*   `SEND_SMS`: Para enviar el SMS de alerta.
-*   `CALL_PHONE`: Para iniciar la llamada de emergencia.
-*   `ACCESS_FINE_LOCATION`: Para incluir la ubicación en el SMS.
-*   `FOREGROUND_SERVICE` y `POST_NOTIFICATIONS`: Para que el servicio de detección funcione de manera fiable.
+## Posibles Mejoras y Hoja de Ruta
 
-## Posibles Mejoras Futuras
+Este proyecto tiene una base sólida, pero existen varias áreas claras para futuras mejoras que lo llevarían a un nivel de producto comercial:
 
-*   **Incorporar Datos del Giroscopio:** Añadir datos de velocidad angular al modelo para mejorar la precisión.
-*   **Umbrales Configurables:** Permitir al usuario ajustar la sensibilidad.
-*   **Registro de Eventos:** Guardar un historial de caídas detectadas y canceladas.
+1.  **Mejora del Modelo de IA:**
+    *   **Entrenamiento con Giroscopio:** El paso más importante es entrenar un nuevo modelo que utilice los datos del giroscopio (velocidad angular) que ya se están recolectando. Esto aumentará significativamente la precisión para diferenciar caídas de otros movimientos.
+
+2.  **Configuración del Usuario:**
+    *   **Ajuste de Sensibilidad:** Los umbrales de detección de la IA (`FALL_THRESHOLD`) y del disparador físico (`MAG_PEAK_THRESHOLD`) están fijos en el código. Exponerlos en una pantalla de "Ajustes" permitiría al usuario adaptar la sensibilidad a sus necesidades.
+
+3.  **Robustez Adicional:**
+    *   **Verificación de Sensores:** Añadir una comprobación al inicio para asegurar que los sensores requeridos (acelerómetro) están disponibles en el dispositivo.
+    *   **Gestión de Permisos en Tiempo de Ejecución:** Implementar verificaciones de permisos justo antes de enviar el SMS o realizar la llamada en `AlertActivity` para manejar el caso de que el usuario los revoque mientras el servicio está activo.
+
+4.  **Experiencia de Usuario (UX):**
+    *   **Historial de Eventos:** Crear una pantalla que muestre un registro de las caídas detectadas y si fueron canceladas o confirmadas.
+    *   **Iconografía Personalizada:** Reemplazar los iconos genéricos del sistema por un conjunto de iconos diseñados para la aplicación.
+
+---
 
 ## Contribuciones
 
-Las contribuciones son bienvenidas. Abre un "issue" para discutir ideas o envía un "pull request".
+Las contribuciones para mejorar Falling Dector son bienvenidas. La forma recomendada de contribuir es:
+
+1.  Crear un "Fork" del repositorio.
+2.  Crear una nueva rama (`git checkout -b feature/nueva-funcionalidad`).
+3.  Realizar los cambios y hacer "Commit".
+4.  Hacer "Push" a la rama (`git push origin feature/nueva-funcionalidad`).
+5.  Abrir un "Pull Request" para su revisión.
+
+Para cambios mayores o nuevas funcionalidades, por favor, abra primero un "Issue" para discutir el enfoque.
+
+## Licencia
+
+Este proyecto está distribuido bajo la Licencia MIT. Ver el archivo `LICENSE` para más detalles.
