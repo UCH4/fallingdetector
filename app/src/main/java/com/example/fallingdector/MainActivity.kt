@@ -45,6 +45,18 @@ class MainActivity : AppCompatActivity() {
         Log.i("MainActivity", "Actividad creada y configurada.")
     }
 
+    override fun onResume() {
+        super.onResume()
+        FallDetectorStatus.isAppInForeground = true
+        Log.d("MainActivity", "App en primer plano.")
+    }
+
+    override fun onPause() {
+        super.onPause()
+        FallDetectorStatus.isAppInForeground = false
+        Log.d("MainActivity", "App en segundo plano.")
+    }
+
     private fun initializeViews() {
         startBtn = findViewById(R.id.startButton)
         stopBtn = findViewById(R.id.stopButton)
@@ -105,19 +117,14 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Servicio de detección detenido.", Toast.LENGTH_SHORT).show()
         }
 
-        // **LÓGICA CORREGIDA**: Ahora el botón de prueba simula el flujo real.
         testBtn.setOnClickListener {
             val phone = phoneNumberEditText.text.toString()
             if (phone.isBlank()) {
                 Toast.makeText(this, "Ingresa un número para probar la alerta.", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            // Guarda el número por si se cambió y no se ha iniciado el servicio.
             savePhoneNumber(phone)
 
-            // **CORRECCIÓN**: No se llama a AlertActivity directamente. Se le envía un comando al servicio.
-            // Esto asegura que el flujo de la notificación `fullScreenIntent` (que permite el sonido)
-            // se ejecute exactamente igual que en una caída real.
             val intent = Intent(this, FallDetectionService::class.java).apply {
                 putExtra("ACTION_TYPE", "RUN_TEST")
                 putExtra(KEY_PHONE, phone)
@@ -161,6 +168,7 @@ class MainActivity : AppCompatActivity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
             }
+            // **LÍNEA CORREGIDA**
             ActivityCompat.requestPermissions(this, permissionsToRequest.toTypedArray(), PERMISSION_REQUEST_CODE)
         }
     }

@@ -116,12 +116,12 @@ class FallDetector(private val context: Context, private val listener: FallListe
                                 val output = classifier.classify(accelWindow = accelData, gyroWindow = gyroData)
                                 val fallProb = output[2]
 
-                                // Log.d("AI_DEBUG", "Probabilidad de Caída Calculada: $fallProb")
+                                Log.d("AI_DEBUG", "Probabilidad de Caída Calculada: $fallProb")
 
                                 val FALL_THRESHOLD = 0.4f
 
                                 if (fallProb > FALL_THRESHOLD) {
-                                    // Log.d("AI_DEBUG", "¡UMBRAL SUPERADO! El bloque IF se ha ejecutado.")
+                                    Log.d("AI_DEBUG", "¡UMBRAL SUPERADO! El bloque IF se ha ejecutado.")
 
                                     currentState = FallState.CONFIRMED_FALL
                                     listener.onFallDetected()

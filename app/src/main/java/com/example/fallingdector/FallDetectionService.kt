@@ -12,25 +12,23 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 
-// Clave para pasar el número de teléfono de emergencia de la MainActivity a este Servicio.
 private const val KEY_PHONE = "emergency_phone"
 
 class FallDetectionService : Service(), FallDetector.FallListener {
 
     private lateinit var detector: FallDetector
     private var contactNumber: String = ""
-    private val CHANNEL_ID = "fall_detector_service_channel" // Canal para la notificación de servicio
-    private val ALERT_CHANNEL_ID = "fall_detector_alert_channel" // Canal para la notificación de ALERTA
-    private val ALERT_NOTIFICATION_ID = 2 // ID único para la notificación de alerta
+    private val CHANNEL_ID = "fall_detector_service_channel"
+    private val ALERT_CHANNEL_ID = "fall_detector_alert_channel"
+    private val ALERT_NOTIFICATION_ID = 2
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
-        // Ahora creamos ambos canales de notificación al iniciar el servicio
         createServiceNotificationChannel()
         createAlertNotificationChannel()
-        Log.i("FallDetectionService", "Servicio creado y canales de notificación listos.")
+        Log.i("FallDetectionService", "Servicio creado.")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -45,15 +43,14 @@ class FallDetectionService : Service(), FallDetector.FallListener {
                 try {
                     detector = FallDetector(this, this)
                     detector.start()
-                    Log.i("FallDetectionService", "Detector iniciado correctamente.")
                 } catch (e: Exception) {
-                    Log.e("FallDetectionService", "Error crítico al iniciar el detector.", e)
+                    Log.e("FallDetectionService", "Error crítico al iniciar.", e)
                     FallDetectorStatus.updateStatus("ERROR: ${e.message}")
                 }
             }
             "RUN_TEST" -> {
-                Log.i("FallDetectionService", "Iniciando prueba de alerta manual.")
-                launchAlertNotification()
+                Log.i("FallDetectionService", "Iniciando prueba de alerta.")
+                onFallDetected() // El test ahora simula el flujo de caída real
             }
         }
         return START_STICKY
@@ -63,7 +60,7 @@ class FallDetectionService : Service(), FallDetector.FallListener {
         super.onDestroy()
         if (::detector.isInitialized) detector.stop()
         FallDetectorStatus.updateStatus("Detenida")
-        Log.i("FallDetectionService", "Servicio destruido y detector detenido.")
+        Log.i("FallDetectionService", "Servicio destruido.")
     }
 
     override fun onDetectionStateChanged(state: FallState) {
@@ -81,19 +78,33 @@ class FallDetectionService : Service(), FallDetector.FallListener {
         FallDetectorStatus.updateSensorData(sensorData)
     }
 
+    /**
+     * **LÓGICA INTELIGENTE IMPLEMENTADA**
+     * Este método ahora decide cómo lanzar la alerta basado en si la app está en primer plano.
+     */
     override fun onFallDetected() {
-        // Log.d("AI_DEBUG", "FallDetectionService: onFallDetected() ha sido llamado.")
-        launchAlertNotification()
-    }
-
-    private fun launchAlertNotification() {
         if (contactNumber.isBlank()) {
-            Log.e("FallDetectionService", "No se puede lanzar la alerta: número de contacto vacío.")
+            Log.e("FallDetectionService", "No se puede iniciar alerta: número de contacto vacío.")
             return
         }
 
-        // Log.d("AI_DEBUG", "FallDetectionService: Construyendo notificación con fullScreenIntent.")
+        // Comprueba el flag que controla la MainActivity
+        if (FallDetectorStatus.isAppInForeground) {
+            // Si la app está abierta, lanza la actividad directamente para una experiencia inmediata.
+            Log.d("FallDetectionService", "App en primer plano. Lanzando AlertActivity directamente.")
+            val intent = Intent(this, AlertActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                putExtra("EMERGENCY_CONTACT", contactNumber)
+            }
+            startActivity(intent)
+        } else {
+            // Si la app está en segundo plano o el teléfono bloqueado, usa la notificación de alta prioridad.
+            Log.d("FallDetectionService", "App en segundo plano. Usando notificación fullScreenIntent.")
+            launchAlertNotification()
+        }
+    }
 
+    private fun launchAlertNotification() {
         val fullScreenIntent = Intent(this, AlertActivity::class.java).apply {
             putExtra("EMERGENCY_CONTACT", contactNumber)
         }
@@ -103,7 +114,7 @@ class FallDetectionService : Service(), FallDetector.FallListener {
         )
 
         val notificationBuilder = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert) // **ICONO CORREGIDO**
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle("¡Posible Caída Detectada!")
             .setContentText("Pulsa para abrir la pantalla de cancelación.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -112,14 +123,11 @@ class FallDetectionService : Service(), FallDetector.FallListener {
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(ALERT_NOTIFICATION_ID, notificationBuilder.build())
-
-        // Log.d("AI_DEBUG", "FallDetectionService: Notificación de alerta enviada al sistema.")
     }
 
     private fun createServiceNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(CHANNEL_ID, "Servicio de Detección", NotificationManager.IMPORTANCE_LOW)
-            channel.description = "Notificación persistente para mantener el servicio activo."
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
@@ -127,7 +135,6 @@ class FallDetectionService : Service(), FallDetector.FallListener {
     private fun createAlertNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(ALERT_CHANNEL_ID, "Alertas de Caída", NotificationManager.IMPORTANCE_HIGH)
-            channel.description = "Canal para las alertas de caída de alta prioridad."
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
@@ -136,7 +143,7 @@ class FallDetectionService : Service(), FallDetector.FallListener {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Detector de Caídas Activo")
             .setContentText("Monitoreando caídas en segundo plano.")
-            .setSmallIcon(android.R.drawable.ic_dialog_alert) // **ICONO CORREGIDO**
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setOngoing(true)
             .build()
     }
